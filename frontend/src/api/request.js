@@ -1,0 +1,28 @@
+import axios from 'axios'
+import router from '../router'
+
+const request = axios.create({
+  baseURL: '',
+  timeout: 10000,
+})
+
+request.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+request.interceptors.response.use(
+  (response) => response.data,
+  (err) => {
+    if (err.response && err.response.status === 401) {
+      localStorage.removeItem('token')
+      router.push('/login')
+    }
+    return Promise.reject(err)
+  },
+)
+
+export default request
