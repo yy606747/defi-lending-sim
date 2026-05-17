@@ -47,12 +47,15 @@ const selectedAsset = ref(null)
 const chartOption = shallowRef(null)
 
 function formatNum(v) { return Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }
+function formatPct(v) { return `${(Number(v || 0) * 100).toFixed(2)}%` }
 
 const statCards = computed(() => [
   { label: '总用户数', value: stats.value.total_users ?? '--', color: '#6366f1', iconBg: 'var(--accent-glow)', svg: '<svg viewBox="0 0 20 20" fill="currentColor" style="width:20px;height:20px;color:#6366f1"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>' },
   { label: '总质押价值', value: `$${formatNum(stats.value.total_pledge_value)}`, color: '#10b981', iconBg: 'var(--green-glow)', svg: '<svg viewBox="0 0 20 20" fill="currentColor" style="width:20px;height:20px;color:#10b981"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>' },
   { label: '总借贷金额', value: `$${formatNum(stats.value.total_loan_amount)}`, color: '#06b6d4', iconBg: 'var(--cyan-glow)', svg: '<svg viewBox="0 0 20 20" fill="currentColor" style="width:20px;height:20px;color:#06b6d4"><path fill-rule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>' },
   { label: '总清算次数', value: stats.value.total_liquidations ?? '--', color: '#f43f5e', iconBg: 'var(--rose-glow)', svg: '<svg viewBox="0 0 20 20" fill="currentColor" style="width:20px;height:20px;color:#f43f5e"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>' },
+  { label: '资金利用率', value: formatPct(stats.value.utilization_rate), color: '#f59e0b', iconBg: 'rgba(245,158,11,0.12)', svg: '<svg viewBox="0 0 20 20" fill="currentColor" style="width:20px;height:20px;color:#f59e0b"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>' },
+  { label: '平均动态利率', value: formatPct(stats.value.avg_dynamic_rate), color: '#8b5cf6', iconBg: 'rgba(139,92,246,0.12)', svg: '<svg viewBox="0 0 20 20" fill="currentColor" style="width:20px;height:20px;color:#8b5cf6"><path fill-rule="evenodd" d="M12 7a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0V8.414l-4.293 4.293a1 1 0 01-1.414 0L8 10.414l-4.293 4.293a1 1 0 01-1.414-1.414l5-5a1 1 0 011.414 0L11 10.586 14.586 7H12z" clip-rule="evenodd"/></svg>' },
 ])
 
 async function loadData() {
@@ -114,7 +117,7 @@ onMounted(loadData)
 .page { display: flex; flex-direction: column; gap: 20px; }
 .page-title { font-size: 18px; font-weight: 600; color: var(--text-primary); margin: 0; }
 
-.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .stat-card {
   display: flex; align-items: center; gap: 14px; padding: 20px;
   background: var(--bg-card); backdrop-filter: blur(12px);
