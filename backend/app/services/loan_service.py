@@ -7,7 +7,132 @@ from app.models import db
 from app.models.loan import Loan
 from app.models.pledge import Pledge
 from app.models.asset import VirtualAsset
+"""借贷管理 Service
 
+提供借贷的创建、查询和利率计算功能。
+"""
+from decimal import Decimal, ROUND_HALF_UP
+from app.models import db
+from app.models.loan import Loan
+from app.models.pledge import Pledge
+from app.models.asset import VirtualAsset
+
+# 核心逻辑 - 各资产基准利率配置
+BASE_RATES = {
+    'ETH': Decimal('0.05'),
+    'BTC': Decimal('0.04'),
+    'USDT': Decimal('0.08'),
+}
+DEFAULT_RATE = Decimal('0.06')
+
+TERM_MULTIPLIERS = [
+    (30, Decimal('0.9'), '30天'),
+    (60, Decimal('1.0'), '60天'),
+    (90, Decimal('1.0'), '90天'),
+    (180, Decimal('1.2'), '180天'),
+]
+
+
+def _get_base_rate(asset_code):
+    """获取资产的基准年化利率"""
+    return BASE_RATES.get(asset_code, DEFAULT_RATE)
+
+
+def _calc_rate(base_rate, loan_term):
+    """根据基准利率和期限计算最终利率"""
+    if loan_term <= 30:
+        rate = base_rate * Decimal('0.9')
+    elif loan_term <= 90:
+        rate = base_rate
+    else:
+        rate = base_rate * Decimal('1.2')
+    return rate.quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
+
+
+def get_current_rate(loan_term, asset_id=None):
+    """根据借贷期限和资产计算利率"""
+    base_rate = DEFAULT_RATE
+    if asset_id:
+        asset = VirtualAsset.query.get(asset_id)
+        if asset:
+            base_rate = _get_base_rate(asset.asset_code)
+    return str(_calc_rate(base_rate, loan_term))
+
+
+def get_asset_rates(asset_id):
+    """获取指定资产在各期限下的利率列表"""
+    asset = VirtualAsset.query.get(asset_id)
+    if not asset:
+        return None, "资产不存在"
+
+    base_rate = _get_base_rate(asset.asset_code)
+    rates = []
+    for term, multiplier, label in TERM_MULTIPLIERS:
+        rate = (base_rate * multiplier).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
+        rates.append({
+            "term": term,
+            "rate": str(rate),
+            "label": label,
+        })
+
+    return {
+        "asset_name": asset.asset_name,
+        "asset_code": asset.asset_code,
+        "base_rate": str(base_rate),
+        "rates": rates,
+    }, None
+
+
+def create_loan(user_id, asset_id, loan_amount, loan_term):
+    """创建借贷记录"""
+    asset = VirtualAsset.query.get(asset_id)
+    if not asset:
+        return None, "资产不存在"
+
+    loan_amount = Decimal(str(loan_amount))
+    if loan_amount <= 0:
+        return None, "借贷金额必须大于0"
+
+    # 额度校验规则：借贷金额 <= 用户所有 active 质押的可借额度之和
+    pledges = Pledge.query.filter_by(user_id=user_id, pledge_status="active").all()
+    total_available = sum(p.available_loan_amount for p in pledges)
+    if loan_amount > total_available:
+        return None, f"可借额度不足，当前可借: {total_available}"
+
+    rate = Decimal(get_current_rate(loan_term, asset_id))
+
+    loan = Loan(
+        user_id=user_id,
+        asset_id=asset_id,
+        loan_amount=loan_amount,
+        loan_rate=rate,
+        loan_term=loan_term,
+        repay_status="unpaid",
+        remaining_principal=loan_amount,
+    )
+    db.session.add(loan)
+    db.session.commit()
+    return loan.to_dict(), None
+
+
+def get_loans(user_id):
+    """获取用户所有借贷记录，附带应还本息"""
+    loans = Loan.query.filter_by(user_id=user_id).order_by(Loan.loan_time.desc()).all()
+    result = []
+    for loan in loans:
+        item = loan.to_dict()
+        asset = VirtualAsset.query.get(loan.asset_id)
+        if asset:
+            item["asset_name"] = asset.asset_name
+            item["asset_code"] = asset.asset_code
+            
+        # 应还本息计算（单利模型）: repay_total = loan_amount * (1 + annual_rate * loan_term / 365)
+        rate_factor = loan.loan_rate * Decimal(str(loan.loan_term)) / Decimal("365")
+        total_repay = loan.loan_amount * (Decimal('1') + rate_factor)
+        
+        item["total_repay"] = str(total_repay.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP))
+        result.append(item)
+    return result
 # TODO: 核心逻辑 - 各资产基准利率配置，后续可改为从数据库读取
 BASE_RATES = {
     'ETH': Decimal('0.05'),
