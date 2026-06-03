@@ -42,7 +42,7 @@
           <div class="computed-value">${{ formatNum(estimatedRepay) }}</div>
         </div>
         <div class="form-group" style="align-self: flex-end;">
-          <button class="btn-accent" :disabled="!form.asset_id || !form.loan_amount" @click="handleCreate">确认借贷</button>
+          <button class="btn-accent" :disabled="!canSubmit" @click="handleCreate">确认借贷</button>
         </div>
       </div>
 
@@ -113,6 +113,10 @@ const defaultTerms = [
 function formatNum(v) { return Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 
 const totalBorrowed = computed(() => loans.value.filter(l => l.repay_status !== 'paid').reduce((s, l) => s + Number(l.remaining_principal), 0))
+const canSubmit = computed(() => {
+  const amount = Number(form.value.loan_amount)
+  return Boolean(form.value.asset_id) && Number.isFinite(amount) && amount > 0 && amount <= totalAvailable.value
+})
 
 const estimatedRepay = computed(() => {
   const amount = Number(form.value.loan_amount) || 0
@@ -123,7 +127,7 @@ const estimatedRepay = computed(() => {
 
 function findRate(term) {
   if (!rateInfo.value) return null
-  const r = rateInfo.value.rates.find(x => x.term === term)
+  const r = rateInfo.value.rates.find(x => Number(x.term) === Number(term))
   return r ? r.rate : null
 }
 
@@ -155,6 +159,10 @@ async function loadData() {
 }
 
 async function handleCreate() {
+  if (!canSubmit.value) {
+    ElMessage.warning('借贷金额必须大于0且不能超过可借额度')
+    return
+  }
   const res = await createLoan({ asset_id: form.value.asset_id, loan_amount: form.value.loan_amount, loan_term: form.value.loan_term })
   if (res.code === 200) {
     ElMessage.success('借贷成功')

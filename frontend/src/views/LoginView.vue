@@ -72,7 +72,7 @@
               <label>密码</label>
               <div class="input-wrapper">
                 <svg class="input-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>
-                <input v-model="registerForm.password" type="password" placeholder="至少6位" />
+                <input v-model="registerForm.password" type="password" placeholder="至少6位且包含数字和字母" />
               </div>
             </div>
             <div class="field">
@@ -114,14 +114,24 @@ const canvasRef = ref(null)
 const loginForm = reactive({ virtual_address: '', password: '' })
 const registerForm = reactive({ user_name: '', virtual_address: '', password: '', confirm_password: '' })
 
+function trimValue(value) {
+  return String(value ?? '').trim()
+}
+
+function isStrongPassword(password) {
+  return password.length >= 6 && /[A-Za-z]/.test(password) && /\d/.test(password)
+}
+
 async function handleLogin() {
-  if (!loginForm.virtual_address || !loginForm.password) {
+  const virtualAddress = trimValue(loginForm.virtual_address)
+  const password = trimValue(loginForm.password)
+  if (!virtualAddress || !password) {
     ElMessage.warning('请填写虚拟地址和密码')
     return
   }
   loginLoading.value = true
   try {
-    const res = await login(loginForm)
+    const res = await login({ virtual_address: virtualAddress, password })
     if (res.code === 200) {
       userStore.setToken(res.data.token)
       userStore.userInfo = res.data.user
@@ -138,25 +148,35 @@ async function handleLogin() {
 }
 
 async function handleRegister() {
-  if (!registerForm.user_name || !registerForm.virtual_address || !registerForm.password) {
+  const userName = trimValue(registerForm.user_name)
+  const virtualAddress = trimValue(registerForm.virtual_address)
+  const password = trimValue(registerForm.password)
+  const confirmPassword = trimValue(registerForm.confirm_password)
+
+  if (!userName || !virtualAddress || !password) {
     ElMessage.warning('请填写所有字段')
     return
   }
-  if (registerForm.password.length < 6) {
-    ElMessage.warning('密码至少6位')
+  if (!isStrongPassword(password)) {
+    ElMessage.warning('密码需同时包含数字和字母')
     return
   }
-  if (registerForm.password !== registerForm.confirm_password) {
+  if (password !== confirmPassword) {
     ElMessage.warning('两次输入的密码不一致')
     return
   }
   registerLoading.value = true
   try {
-    const res = await register(registerForm)
+    const res = await register({
+      user_name: userName,
+      virtual_address: virtualAddress,
+      password,
+      confirm_password: confirmPassword,
+    })
     if (res.code === 200) {
       ElMessage.success('注册成功，请登录')
       activeTab.value = 'login'
-      loginForm.virtual_address = registerForm.virtual_address
+      loginForm.virtual_address = virtualAddress
     } else {
       ElMessage.error(res.message)
     }

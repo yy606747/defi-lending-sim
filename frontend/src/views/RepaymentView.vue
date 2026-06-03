@@ -19,7 +19,7 @@
           <input v-model="form.repayment_amount" type="number" step="any" min="0" class="input" placeholder="输入金额" />
         </div>
         <div class="form-group" style="align-self: flex-end;">
-          <button class="btn-accent" :disabled="!form.loan_id || !form.repayment_amount" @click="handleRepay">确认还款</button>
+          <button class="btn-accent" :disabled="!canSubmit" @click="handleRepay">确认还款</button>
         </div>
       </div>
       <div v-if="selectedLoan" class="loan-detail">
@@ -67,7 +67,12 @@ const repayments = ref([])
 const form = ref({ loan_id: '', repayment_amount: '' })
 
 const unpaidLoans = computed(() => loans.value.filter(l => l.repay_status !== 'paid'))
-const selectedLoan = computed(() => loans.value.find(l => l.loan_id === form.value.loan_id))
+const selectedLoan = computed(() => loans.value.find(l => Number(l.loan_id) === Number(form.value.loan_id)))
+const canSubmit = computed(() => {
+  const amount = Number(form.value.repayment_amount)
+  const remaining = Number(selectedLoan.value?.remaining_principal)
+  return Boolean(selectedLoan.value) && Number.isFinite(amount) && amount > 0 && amount <= remaining
+})
 
 function formatNum(v) { return Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 function formatTime(t) { return t ? new Date(t).toLocaleString('zh-CN') : '--' }
@@ -79,6 +84,10 @@ async function loadData() {
 }
 
 async function handleRepay() {
+  if (!canSubmit.value) {
+    ElMessage.warning('还款金额必须大于0且不能超过剩余本金')
+    return
+  }
   const res = await createRepayment({ loan_id: form.value.loan_id, repayment_amount: form.value.repayment_amount })
   if (res.code === 200) {
     ElMessage.success('还款成功')

@@ -52,20 +52,24 @@ def check_liquidation_risk(user_id):
 
     # 2. 计算全局质押率与资产对应的动态风险切分线
     if total_debt > Decimal('0') and total_collateral_value > Decimal('0'):
-        collateral_ratio = (total_collateral_value / total_debt).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+        raw_collateral_ratio = total_collateral_value / total_debt
+        collateral_ratio = raw_collateral_ratio.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
         # 该账户当前的动态清算线 (加权平均值)
-        liquidation_threshold = (weighted_liq_sum / total_collateral_value).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+        raw_liquidation_threshold = weighted_liq_sum / total_collateral_value
+        liquidation_threshold = raw_liquidation_threshold.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
         # 预警线跟随清算线保持原有的 0.3 缓冲垫 (例如 1.2 -> 1.5, 1.05 -> 1.35)
-        warning_threshold = liquidation_threshold + Decimal('0.30')
+        raw_warning_threshold = raw_liquidation_threshold + Decimal('0.30')
     else:
+        raw_collateral_ratio = Decimal("9999.0000")
+        raw_liquidation_threshold = Decimal("1.20")
+        raw_warning_threshold = Decimal("1.50")
         collateral_ratio = Decimal("9999.0000")
         liquidation_threshold = Decimal("1.20")
-        warning_threshold = Decimal("1.50")
 
     # 3. 根据全局质押率划分风险等级（因资产种类有动态阈值）
-    if collateral_ratio < liquidation_threshold:
+    if raw_collateral_ratio < raw_liquidation_threshold:
         risk_level = "high"
-    elif collateral_ratio < warning_threshold:
+    elif raw_collateral_ratio < raw_warning_threshold:
         risk_level = "medium"
     else:
         risk_level = "low"

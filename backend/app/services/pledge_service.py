@@ -2,11 +2,12 @@
 
 提供质押的创建、查询和解锁功能。
 """
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from app.models import db
 from app.models.pledge import Pledge
 from app.models.loan import Loan
 from app.models.asset import VirtualAsset
+from app.models.user import User
 
 
 ## ==================== 统一风控数据联结表 ====================
@@ -53,7 +54,14 @@ def create_pledge(user_id, asset_id, pledge_amount):
     if not asset:
         return None, "资产不存在"
 
-    pledge_amount = Decimal(str(pledge_amount))
+    if not User.query.get(user_id):
+        return None, "用户不存在"
+
+    try:
+        pledge_amount = Decimal(str(pledge_amount))
+    except (InvalidOperation, ValueError):
+        return None, "质押数量必须为有效数字"
+
     if pledge_amount <= 0:
         return None, "质押数量必须大于0"
 

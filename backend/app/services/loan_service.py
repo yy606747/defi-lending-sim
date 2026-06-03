@@ -2,7 +2,7 @@
 
 提供借贷的创建、查询和利率计算功能。
 """
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from datetime import datetime
 from app.models import db
 from app.models.loan import Loan
@@ -70,7 +70,14 @@ def create_loan(user_id, asset_id, loan_amount, loan_term):
     if not asset:
         return None, "资产不存在"
 
-    loan_amount = Decimal(str(loan_amount))
+    if loan_term <= 0:
+        return None, "借贷期限必须大于0"
+
+    try:
+        loan_amount = Decimal(str(loan_amount))
+    except (InvalidOperation, ValueError):
+        return None, "借贷金额必须为有效数字"
+
     if loan_amount <= 0:
         return None, "借贷金额必须大于0"
 

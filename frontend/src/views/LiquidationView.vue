@@ -107,7 +107,13 @@ async function loadData() {
 }
 
 async function applyPrices() {
-  await simulatePrice()
+  const selectedPrices = assets.value
+    .filter(a => Number(a.tempPrice) !== Number(a.current_price))
+    .map(a => ({
+      asset_id: a.asset_id,
+      current_price: Number(a.tempPrice),
+    }))
+  await simulatePrice(selectedPrices)
   const [r, l] = await Promise.all([getLiquidationRisk(), getLiquidationList()])
   if (r.code === 200) risks.value = r.data
   if (l.code === 200) liquidations.value = l.data

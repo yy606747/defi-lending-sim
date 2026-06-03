@@ -53,7 +53,7 @@ def calculate_dynamic_rate(asset_code, utilization):
         Decimal: 动态年化利率
     """
     params = RATE_PARAMS.get(asset_code, DEFAULT_RATE_PARAMS)
-    u = min(utilization, Decimal("1.0"))
+    u = max(Decimal("0"), min(utilization, Decimal("1.0")))
 
     if u <= params["optimal"]:
         # 低利用率区间：利率缓慢上升，鼓励借款
@@ -112,8 +112,6 @@ def get_price_history(asset_id):
             # USDT 硬性约束：锚定价 ±2%
             price = max(0.98, min(1.02, price))
             prices.append(round(price, 4))
-        # 正向生成无需 reverse，直接替换最后一个点为当前真实价格
-        prices[-1] = current_price if abs(current_price - 1.0) < 0.02 else prices[-1]
         prices.append(current_price)
     else:
         # ETH / BTC：GBM 反向生成，sigma 为日波动参数
@@ -122,9 +120,8 @@ def get_price_history(asset_id):
             factor = math.exp((mu - 0.5 * sigma ** 2) + sigma * z)
             price = price / factor  # 反向：除以因子
             prices.append(round(price, 4))
-
-    prices.reverse()
-    prices.append(current_price)  # 第 31 个点 = 当前真实价格
+        prices.reverse()
+        prices.append(current_price)  # 第 31 个点 = 当前真实价格
 
     today = datetime.now().date()
     dates = [(today - timedelta(days=30 - i)).isoformat() for i in range(31)]

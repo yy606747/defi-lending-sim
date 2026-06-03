@@ -2,7 +2,7 @@
 
 提供还款的创建和查询功能。
 """
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from datetime import datetime, timedelta
 from app.models import db
 from app.models.loan import Loan
@@ -18,9 +18,15 @@ def create_repayment(user_id, loan_id, repayment_amount):
     if loan.repay_status == "paid":
         return None, "该借贷已还清"
 
-    repayment_amount = Decimal(str(repayment_amount))
+    try:
+        repayment_amount = Decimal(str(repayment_amount))
+    except (InvalidOperation, ValueError):
+        return None, "还款金额必须为有效数字"
+
     if repayment_amount <= 0:
         return None, "还款金额必须大于0"
+    if repayment_amount > loan.remaining_principal:
+        return None, "还款金额不能超过待还本金"
 
     # 还款处理规则：直接从剩余本金中扣减（符合当前仿真系统的简化模型）
     loan.remaining_principal -= repayment_amount

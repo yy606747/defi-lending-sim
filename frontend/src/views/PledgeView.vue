@@ -23,7 +23,7 @@
           <div class="computed-value">${{ formatNum(availableLoan) }}</div>
         </div>
         <div class="form-group" style="align-self: flex-end;">
-          <button class="btn-accent" :disabled="!form.asset_id || !form.pledge_amount" @click="handleCreate">确认质押</button>
+          <button class="btn-accent" :disabled="!canSubmit" @click="handleCreate">确认质押</button>
         </div>
       </div>
     </div>
@@ -63,7 +63,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getAssetList } from '../api/asset'
 import { createPledge, getPledgeList, unlockPledge } from '../api/pledge'
@@ -73,13 +73,21 @@ const pledges = ref([])
 const form = ref({ asset_id: '', pledge_amount: '' })
 const availableLoan = ref(0)
 const statusMap = { active: '活跃', liquidated: '已清算', unlocked: '已解锁' }
+const assetLtv = { ETH: 0.8, BTC: 0.75, USDT: 0.9 }
 
 function formatNum(v) { return Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
+function selectedAsset() { return assets.value.find(a => Number(a.asset_id) === Number(form.value.asset_id)) }
+function getLtv(asset) { return assetLtv[asset?.asset_code] ?? 0.75 }
+
+const canSubmit = computed(() => {
+  const amount = Number(form.value.pledge_amount)
+  return Boolean(form.value.asset_id) && Number.isFinite(amount) && amount > 0
+})
 
 function calcAvailable() {
-  const asset = assets.value.find(a => a.asset_id === form.value.asset_id)
+  const asset = selectedAsset()
   const amount = Number(form.value.pledge_amount) || 0
-  availableLoan.value = asset ? amount * Number(asset.current_price) * 0.75 : 0
+  availableLoan.value = asset && amount > 0 ? amount * Number(asset.current_price) * getLtv(asset) : 0
 }
 
 async function loadData() {
@@ -89,6 +97,10 @@ async function loadData() {
 }
 
 async function handleCreate() {
+  if (!canSubmit.value) {
+    ElMessage.warning('质押数量必须大于0')
+    return
+  }
   const res = await createPledge({ asset_id: form.value.asset_id, pledge_amount: form.value.pledge_amount })
   if (res.code === 200) {
     ElMessage.success('质押成功')

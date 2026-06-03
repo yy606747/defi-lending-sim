@@ -18,7 +18,13 @@ def create():
     loan_term = data.get("loan_term")
     if not all([asset_id, loan_amount, loan_term]):
         return error("资产ID、借贷金额和期限不能为空")
-    result, err = loan_service.create_loan(user_id, asset_id, loan_amount, int(loan_term))
+    try:
+        loan_term = int(loan_term)
+    except (TypeError, ValueError):
+        return error("借贷期限必须为整数")
+    if loan_term <= 0:
+        return error("借贷期限必须大于0")
+    result, err = loan_service.create_loan(user_id, asset_id, loan_amount, loan_term)
     if err:
         return error(err)
     return success(result, "借贷成功")

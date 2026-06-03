@@ -1,4 +1,6 @@
 from decimal import Decimal
+from sqlalchemy import event
+from sqlalchemy.orm import Session
 from app.models import db
 
 
@@ -22,3 +24,26 @@ class VirtualAsset(db.Model):
             "current_price": str(self.current_price),
             "price_volatility": str(self.price_volatility),
         }
+
+
+@event.listens_for(Session, "before_flush")
+def prevent_duplicate_asset_codes(session, flush_context, instances):
+    seen_codes = set()
+    for asset in list(session.new):
+        if not isinstance(asset, VirtualAsset) or not asset.asset_code:
+            continue
+
+        asset.asset_code = str(asset.asset_code).strip().upper()
+        if asset.asset_code in seen_codes:
+            session.expunge(asset)
+            continue
+
+        existing = (
+            session.query(VirtualAsset)
+            .filter(VirtualAsset.asset_code == asset.asset_code)
+            .first()
+        )
+        if existing:
+            session.expunge(asset)
+        else:
+            seen_codes.add(asset.asset_code)

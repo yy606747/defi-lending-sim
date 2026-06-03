@@ -89,15 +89,29 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useUserStore } from '../stores/user'
+import { getPledgeList } from '../api/pledge'
+import { getLoanList } from '../api/loan'
 
 const userStore = useUserStore()
+const pledgeCount = ref(null)
+const activeLoanCount = ref(null)
 
 function formatTime(iso) {
   if (!iso) return '--'
   const d = new Date(iso)
   return d.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
+}
+
+async function loadOverview() {
+  const [pledgeRes, loanRes] = await Promise.all([getPledgeList(), getLoanList()])
+  if (pledgeRes.code === 200) {
+    pledgeCount.value = pledgeRes.data.filter(p => p.pledge_status === 'active').length
+  }
+  if (loanRes.code === 200) {
+    activeLoanCount.value = loanRes.data.filter(l => l.repay_status !== 'paid').length
+  }
 }
 
 const stats = computed(() => [
@@ -110,14 +124,14 @@ const stats = computed(() => [
   },
   {
     label: '质押数量',
-    value: '0',
+    value: pledgeCount.value ?? '--',
     color: '#10b981',
     iconBg: 'var(--green-glow)',
     svg: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>',
   },
   {
     label: '活跃借贷',
-    value: '0',
+    value: activeLoanCount.value ?? '--',
     color: '#06b6d4',
     iconBg: 'var(--cyan-glow)',
     svg: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>',
@@ -130,6 +144,8 @@ const stats = computed(() => [
     svg: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clip-rule="evenodd"/></svg>',
   },
 ])
+
+onMounted(loadOverview)
 </script>
 
 <style scoped>

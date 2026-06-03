@@ -76,6 +76,10 @@ async function loadChart(assetId) {
   const res = await getPriceHistory(assetId)
   if (res.code !== 200) return
   const d = res.data
+  if (!Array.isArray(d?.dates) || !Array.isArray(d?.prices) || d.dates.length !== d.prices.length) {
+    chartOption.value = null
+    return
+  }
   chartOption.value = {
     backgroundColor: 'transparent',
     tooltip: {
