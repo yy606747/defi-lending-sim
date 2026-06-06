@@ -34,3 +34,7 @@ Thumbs.db
 # Environment
 .env
 .env.*
+
+# Local report drafts
+docs/technical_report_demo.*
+docs/~$*.docx

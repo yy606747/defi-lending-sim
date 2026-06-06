@@ -104,3 +104,13 @@ npm test -- --run
 cd frontend
 NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost npm run test:e2e
 ```
+
+## 运行对比实验（固定利率 vs Kink 动态利率）
+
+复现技术报告 5.5 节的利率对比表，数据直接由系统利率引擎计算得出：
+
+```bash
+python scripts/experiment_rate_comparison.py
+```
+
+可选参数：`--asset ETH|BTC|USDT` 切换市场、`--fixed-rate 0.06` 调整对比基准、`--utilizations 0.2 0.8 0.95` 自定义利用率点。脚本会输出纯文本表与可直接粘贴进报告的 Markdown 表。
