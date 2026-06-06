@@ -165,6 +165,38 @@ export async function mockApi(page, overrides = {}) {
     if (path === '/api/liquidation/list') return json(route, ok([]))
     if (path === '/api/liquidation/execute') return json(route, ok({}, '清算执行完成'))
 
+    if (path === '/api/oracle/overview') {
+      return json(route, ok({
+        stats: {
+          total_users: 2,
+          total_pledge_value: '6000.0000',
+          total_loan_amount: '400.0000',
+          total_liquidations: 1,
+          utilization_rate: '0.0667',
+          avg_dynamic_rate: '0.0227',
+        },
+        at_risk: state.oracleAtRisk ?? [],
+        recent_liquidations: state.oracleRecentLiquidations ?? [],
+      }))
+    }
+    if (path === '/api/oracle/feed') {
+      return json(route, ok({
+        assets: state.assets ?? assets,
+        at_risk_before: state.oracleAtRiskBefore ?? [],
+        liquidations: state.oracleLiquidations ?? [],
+        at_risk: state.oracleAtRisk ?? [],
+        stats: {
+          total_users: 2,
+          total_pledge_value: '6000.0000',
+          total_loan_amount: '400.0000',
+          total_liquidations: 1,
+          utilization_rate: '0.0667',
+          avg_dynamic_rate: '0.0227',
+        },
+        recent_liquidations: state.oracleRecentLiquidations ?? [],
+      }, '全局喂价与风控扫描完成'))
+    }
+
     if (path === '/api/simulation/statistics') {
       return json(route, ok({
         total_users: 2,

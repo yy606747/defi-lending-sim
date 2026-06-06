@@ -6,7 +6,7 @@ import pytest
 from app.models import db
 from app.models.loan import Loan
 from app.models.pledge import Pledge
-from app.services import loan_service, pledge_service, repayment_service
+from app.services import asset_service, loan_service, pledge_service, repayment_service, simulation_service
 
 
 @pytest.mark.financial
@@ -141,10 +141,10 @@ def test_unlock_pledge_allows_when_remaining_collateral_covers_debt(
 @pytest.mark.parametrize(
     "term, expected",
     [
-        (30, "0.0450"),
-        (31, "0.0500"),
-        (90, "0.0500"),
-        (91, "0.0600"),
+        (30, "0.0180"),
+        (31, "0.0200"),
+        (90, "0.0200"),
+        (91, "0.0240"),
     ],
 )
 def test_get_current_rate_term_boundaries(app, assets, term, expected):
@@ -163,8 +163,8 @@ def test_create_loan_deducts_available_amount_across_pledges(app, make_user, ass
     assert result["remaining_principal"] == "250.0000"
     db.session.refresh(first)
     db.session.refresh(second)
-    assert first.available_loan_amount == Decimal("0.0000")
-    assert second.available_loan_amount == Decimal("50.0000")
+    assert first.available_loan_amount == Decimal("2275.0000")
+    assert second.available_loan_amount == Decimal("2275.0000")
 
 
 @pytest.mark.financial
@@ -177,13 +177,28 @@ def test_create_loan_rejects_amount_above_available_without_mutating(
     user = make_user()
     pledge = make_pledge(user, assets["ETH"], amount="1", available_loan_amount="100")
 
-    result, err = loan_service.create_loan(user.user_id, assets["ETH"].asset_id, "101", 30)
+    result, err = loan_service.create_loan(user.user_id, assets["ETH"].asset_id, "2400.0001", 30)
 
     assert result is None
     assert "可借额度不足" in err
     db.session.refresh(pledge)
     assert pledge.available_loan_amount == Decimal("100.0000")
     assert Loan.query.count() == 0
+
+
+@pytest.mark.financial
+@pytest.mark.regression
+def test_create_loan_uses_live_oracle_price_after_price_drop(app, make_user, assets):
+    user = make_user()
+    pledge_service.create_pledge(user.user_id, assets["ETH"].asset_id, "1")
+    asset_service.simulate_price_change(
+        [{"asset_id": assets["ETH"].asset_id, "current_price": "1000"}]
+    )
+
+    result, err = loan_service.create_loan(user.user_id, assets["ETH"].asset_id, "800.0001", 30)
+
+    assert result is None
+    assert "可借额度不足" in err
 
 
 @pytest.mark.parametrize("amount", ["0", "-1"])
@@ -219,14 +234,68 @@ def test_create_loan_rejects_non_numeric_amount_without_crashing(app, make_user,
 
 
 @pytest.mark.financial
-def test_get_loans_calculates_fixed_simple_interest_total_repay(app, make_user, assets, make_loan):
+def test_get_loans_uses_accrued_interest_total_repay(app, make_user, assets, make_loan):
     user = make_user()
-    make_loan(user, assets["ETH"], amount="1000", rate="0.05", term=365, remaining="400", status="partial")
+    make_loan(
+        user,
+        assets["ETH"],
+        amount="1000",
+        rate="0.05",
+        term=365,
+        remaining="400",
+        accrued_interest="50",
+        status="partial",
+    )
 
     result = loan_service.get_loans(user.user_id)
 
     assert result[0]["total_repay"] == "450.0000"
     assert result[0]["asset_code"] == "ETH"
+
+
+@pytest.mark.financial
+@pytest.mark.regression
+def test_get_loans_is_read_only_and_does_not_accrue_interest(app, make_user, assets, make_loan):
+    user = make_user()
+    fixed_time = datetime.now() - timedelta(days=30)
+    loan = make_loan(
+        user,
+        assets["ETH"],
+        amount="1000",
+        rate="0.05",
+        term=365,
+        remaining="1000",
+        loan_time=fixed_time,
+        last_accrual_time=fixed_time,
+    )
+
+    loan_service.get_loans(user.user_id)
+
+    db.session.refresh(loan)
+    assert loan.accrued_interest == Decimal("0.0000")
+    assert loan.last_accrual_time == fixed_time
+
+
+@pytest.mark.financial
+@pytest.mark.regression
+def test_advance_time_accrues_interest_without_overwriting_loan_rate(app, make_user, assets, make_loan):
+    user = make_user()
+    loan = make_loan(
+        user,
+        assets["ETH"],
+        amount="1000",
+        rate="0.05",
+        term=365,
+        remaining="1000",
+    )
+
+    result, err = simulation_service.advance_time(user.user_id, "30")
+
+    assert err is None
+    assert result["interest_accrued"] == "4.1096"
+    db.session.refresh(loan)
+    assert loan.accrued_interest == Decimal("4.1096")
+    assert loan.loan_rate == Decimal("0.050000")
 
 
 def test_create_repayment_partial_and_paid_status(app, make_user, assets, make_loan):
@@ -245,6 +314,22 @@ def test_create_repayment_partial_and_paid_status(app, make_user, assets, make_l
     assert loan.repay_status == "paid"
 
 
+@pytest.mark.financial
+def test_create_repayment_pays_interest_before_principal(app, make_user, assets, make_loan):
+    user = make_user()
+    loan = make_loan(user, assets["ETH"], amount="100", remaining="100", accrued_interest="10")
+
+    result, err = repayment_service.create_repayment(user.user_id, loan.loan_id, "10")
+
+    assert err is None
+    assert result["interest_paid"] == "10.0000"
+    assert result["principal_paid"] == "0.0000"
+    db.session.refresh(loan)
+    assert loan.accrued_interest == Decimal("0.0000")
+    assert loan.remaining_principal == Decimal("100.0000")
+    assert loan.repay_status == "partial"
+
+
 @pytest.mark.regression
 @pytest.mark.financial
 def test_create_repayment_rejects_overpayment(app, make_user, assets, make_loan):
@@ -254,7 +339,7 @@ def test_create_repayment_rejects_overpayment(app, make_user, assets, make_loan)
     result, err = repayment_service.create_repayment(user.user_id, loan.loan_id, "50.0001")
 
     assert result is None
-    assert err == "还款金额不能超过待还本金"
+    assert err == "还款金额不能超过待还本息"
 
 
 @pytest.mark.parametrize(
@@ -317,4 +402,3 @@ def test_loan_create_api_rejects_non_numeric_term(client, make_user, make_auth_h
 
     assert response.status_code == 400
     assert response.get_json()["code"] == 400
-

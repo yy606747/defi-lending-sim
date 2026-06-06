@@ -1,82 +1,35 @@
-"""清算管理 Service
+"""清算管理服务
 
 提供清算风险检测、清算执行和清算记录查询功能。
 """
 from decimal import Decimal, ROUND_HALF_UP
 from app.models import db
 from app.models.pledge import Pledge
-from app.models.loan import Loan
 from app.models.liquidation import Liquidation
 from app.models.asset import VirtualAsset
-# 直接引入 pledge_service 的统一资产配置，实现数据跨模块无缝联结
-from app.services.pledge_service import ASSET_CONFIG, DEFAULT_CONFIG
+from app.services import interest_service, risk_engine
+from app.services.protocol_config import (
+    FULL_LIQUIDATION_CLOSE_FACTOR,
+    FULL_LIQUIDATION_HEALTH_FACTOR,
+    MONEY_QUANT,
+    PARTIAL_LIQUIDATION_CLOSE_FACTOR,
+    get_asset_param,
+)
 
 
 def check_liquidation_risk(user_id):
-    """检查用户所有 active 质押的清算风险
+    """返回账户级清算风险，并附带每笔活跃质押的明细。
 
-    Args:
-        user_id (int): 用户ID
-
-    Returns:
-        list[dict]: 各质押的风险状态列表，每项包含质押信息 + risk_level + collateral_ratio
-
-    # TODO: 核心逻辑 - 清算线和风险等级划分，后续需根据业务需求调整
-    当前实现：
-    - 质押率 = 当前质押价值 / 用户已借总额
-    - 质押率 < 1.2 → 高风险（触发清算线）
-    - 质押率 < 1.5 → 中风险
-    - 质押率 >= 1.5 → 低风险
+    每一行展示一笔质押物，但健康因子和风险等级都是账户级结果。
     """
-    pledges = Pledge.query.filter_by(user_id=user_id, pledge_status="active").all()
-    unpaid_loans = Loan.query.filter(
-        Loan.user_id == user_id, Loan.repay_status != "paid"
-    ).all()
-    total_debt = sum(loan.remaining_principal for loan in unpaid_loans)
+    snapshot = risk_engine.get_account_snapshot(user_id)
 
-    # 1. 计算用户全局质押价值
-    total_collateral_value = Decimal('0')
-    weighted_liq_sum = Decimal('0')
-    pledge_details = []
-    for p in pledges:
-        asset = VirtualAsset.query.get(p.asset_id)
-        if not asset:
-            continue
-        config = ASSET_CONFIG.get(asset.asset_code, DEFAULT_CONFIG)
-
-        current_value = p.pledge_amount * asset.current_price
-        total_collateral_value += current_value
-        # 资产价值 × 该资产特有的清算率门槛 (如 USDT 1.05, BTC 1.20)
-        weighted_liq_sum += (current_value * config['LIQUIDATION_RATIO'])
-        pledge_details.append((p, asset, current_value))
-
-    # 2. 计算全局质押率与资产对应的动态风险切分线
-    if total_debt > Decimal('0') and total_collateral_value > Decimal('0'):
-        raw_collateral_ratio = total_collateral_value / total_debt
-        collateral_ratio = raw_collateral_ratio.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
-        # 该账户当前的动态清算线 (加权平均值)
-        raw_liquidation_threshold = weighted_liq_sum / total_collateral_value
-        liquidation_threshold = raw_liquidation_threshold.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
-        # 预警线跟随清算线保持原有的 0.3 缓冲垫 (例如 1.2 -> 1.5, 1.05 -> 1.35)
-        raw_warning_threshold = raw_liquidation_threshold + Decimal('0.30')
-    else:
-        raw_collateral_ratio = Decimal("9999.0000")
-        raw_liquidation_threshold = Decimal("1.20")
-        raw_warning_threshold = Decimal("1.50")
-        collateral_ratio = Decimal("9999.0000")
-        liquidation_threshold = Decimal("1.20")
-
-    # 3. 根据全局质押率划分风险等级（因资产种类有动态阈值）
-    if raw_collateral_ratio < raw_liquidation_threshold:
-        risk_level = "high"
-    elif raw_collateral_ratio < raw_warning_threshold:
-        risk_level = "medium"
-    else:
-        risk_level = "low"
-
-    # 4. 组装返回数据，转为float以兼容JSON
+    # 组装返回数据。每一行展示抵押物明细，但风险等级是账户级健康因子。
     result = []
-    for p, asset, current_value in pledge_details:
+    for row in snapshot["pledges"]:
+        p = row["pledge"]
+        asset = row["asset"]
+        current_value = row["current_value"]
         item = p.to_dict()
         item["asset_name"] = asset.asset_name
         item["asset_code"] = asset.asset_code
@@ -84,29 +37,22 @@ def check_liquidation_risk(user_id):
         item["current_value"] = str(
             current_value.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
         )
-        item["collateral_ratio"] = str(collateral_ratio)
-        item["risk_level"] = risk_level
-        item["total_debt"] = str(total_debt)
+        item["collateral_ratio"] = str(snapshot["collateral_ratio"])
+        item["health_factor"] = str(snapshot["health_factor"])
+        item["risk_level"] = snapshot["risk_level"]
+        item["total_debt"] = str(snapshot["total_debt"])
+        item["borrow_power"] = str(snapshot["borrow_power"])
+        item["available_to_borrow"] = str(snapshot["available_to_borrow"])
         result.append(item)
     
     return result
 
 
 def execute_liquidation(pledge_id, user_id):
-    """执行清算
+    """执行账户级部分清算。
 
-    Args:
-        pledge_id (int): 质押ID
-        user_id (int): 用户ID（用于校验所有权）
-
-    Returns:
-        (dict|None, str|None): (清算记录, 错误消息)
-
-    # TODO: 核心逻辑 - 清算执行流程，后续需完善（如部分清算、清算罚金等）
-    当前实现：
-    1. 将质押状态改为 liquidated
-    2. 将该用户所有未还清借贷标记为 paid
-    3. 创建清算记录
+    清算流程按账户健康因子判断是否可清算，再按 close factor 和清算罚金
+    计算本轮偿还债务与扣押抵押物数量。
     """
 
     # 1. 基础存在性与状态检验
@@ -116,61 +62,74 @@ def execute_liquidation(pledge_id, user_id):
     if pledge.pledge_status != "active":
         return None, "该质押不处于活跃状态"
 
-    # 2. 二次验证全局风险指标，确保合法触发清算
-    unpaid_loans = Loan.query.filter(
-        Loan.user_id == user_id, Loan.repay_status != "paid"
-    ).all()
-    total_debt = sum(loan.remaining_principal for loan in unpaid_loans)
-
-    active_pledges = Pledge.query.filter_by(user_id=user_id, pledge_status="active").all()
-    total_collateral_value = Decimal('0')
-    weighted_liq_sum = Decimal('0')
-
-    for p in active_pledges:
-        ast = VirtualAsset.query.get(p.asset_id)
-        if ast:
-            config = ASSET_CONFIG.get(ast.asset_code, DEFAULT_CONFIG)
-            current_value = p.pledge_amount * ast.current_price
-            total_collateral_value += current_value
-            weighted_liq_sum += (current_value * config['LIQUIDATION_RATIO'])
-    
-    if total_debt > Decimal('0') and total_collateral_value > Decimal('0'):
-        current_ratio = total_collateral_value / total_debt
-        liquidation_threshold = weighted_liq_sum / total_collateral_value
-        if current_ratio >= liquidation_threshold:
-            return None, "当前全局风险指标未达到清算线(1.2)，用户资金处于安全状态，拒绝清算"
-    
-    else:
+    # 2. 二次验证账户健康因子，确保合法触发清算
+    interest_service.accrue_user_interest(user_id, commit=False)
+    before = risk_engine.get_account_snapshot(user_id)
+    total_debt = before["total_debt"]
+    if total_debt <= Decimal("0"):
+        db.session.rollback()
         return None, "用户无未还借款，无需清算"
+    if before["health_factor"] >= Decimal("1"):
+        db.session.rollback()
+        return None, "当前账户健康因子未低于1，用户资金处于安全状态，拒绝清算"
     
     # 3. 准备执行清算数据
     asset = VirtualAsset.query.get(pledge.asset_id)
-    liquidation_price = asset.current_price if asset else Decimal("0")
-    liquidation_amount = pledge.pledge_amount * liquidation_price
+    if not asset:
+        db.session.rollback()
+        return None, "质押资产不存在，无法清算"
+    liquidation_price = asset.current_price
+    params = get_asset_param(asset.asset_code)
+    liquidation_bonus = params["liquidation_bonus"]
 
-    # 4. 执行状态核心变更 (使用 try-except 确保原子性)
+    close_factor = (
+        FULL_LIQUIDATION_CLOSE_FACTOR
+        if before["health_factor"] <= FULL_LIQUIDATION_HEALTH_FACTOR
+        else PARTIAL_LIQUIDATION_CLOSE_FACTOR
+    )
+    target_debt_to_cover = (total_debt * close_factor).quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
+    max_debt_by_collateral = (
+        pledge.pledge_amount * liquidation_price / (Decimal("1") + liquidation_bonus)
+    ).quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
+    debt_repaid = min(target_debt_to_cover, max_debt_by_collateral, total_debt)
+    if debt_repaid <= 0:
+        db.session.rollback()
+        return None, "该质押物价值不足，无法执行有效清算"
+
+    collateral_seized = (
+        debt_repaid * (Decimal("1") + liquidation_bonus) / liquidation_price
+    ).quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
+    if collateral_seized > pledge.pledge_amount:
+        collateral_seized = pledge.pledge_amount
+    liquidation_amount = (collateral_seized * liquidation_price).quantize(
+        MONEY_QUANT, rounding=ROUND_HALF_UP
+    )
+
+    # 4. 执行状态核心变更，异常时整体回滚。
     try:
-        pledge.pledge_status = "liquidated"
+        pledge.pledge_amount = (pledge.pledge_amount - collateral_seized).quantize(
+            MONEY_QUANT, rounding=ROUND_HALF_UP
+        )
+        if pledge.pledge_amount <= 0:
+            pledge.pledge_amount = Decimal("0")
+            pledge.pledge_status = "liquidated"
 
-        """
-        依照开发手册简化的强制清算逻辑：质押被清算，该用户全部贷款核销
-        这属于“协议坏账处理”的极简模型，而非真实的清算机制，在实际业务中遵循“部分清算”原则：
-            1. 清算激励 Bonus : 清算人 Liquidation Bot 代偿部分债务，并以折扣价（如 95 折）获得等值的抵押品。
-            2. 清算因子 Close Factor : 一次最多只能清算债务的 50%。
-            3. 目标：将健康因子 (质押率/清算线) 拉回到 $1.0$ 以上即可，尽量保护借款人的剩余头寸。
-        但是因为实际业务逻辑中需要考虑坏账风险、资产换算、中间状态等，代码复杂度急剧增加，
-        所以本次仿真只采用**全额清算模型**以保证系统偿付性
-        """
-        for loan in unpaid_loans:
-            loan.repay_status = "paid"
-            loan.remaining_principal = Decimal("0")
+        repay_result = interest_service.apply_debt_repayment(user_id, debt_repaid)
+        after = risk_engine.sync_available_amounts(user_id)
+        bad_debt = max(Decimal("0"), after["total_debt"] - after["total_collateral_value"])
 
         liq = Liquidation(
             user_id = user_id,
             pledge_id = pledge_id,
             liquidation_price = liquidation_price,
-            liquidation_amount = liquidation_amount.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP),
+            liquidation_amount = liquidation_amount,
             liquidation_status="completed",
+            debt_repaid=repay_result["used"].quantize(MONEY_QUANT, rounding=ROUND_HALF_UP),
+            collateral_seized=collateral_seized,
+            liquidation_bonus=liquidation_bonus,
+            health_factor_before=before["health_factor"],
+            health_factor_after=after["health_factor"],
+            bad_debt=bad_debt.quantize(MONEY_QUANT, rounding=ROUND_HALF_UP),
         )
         db.session.add(liq)
         db.session.commit()
@@ -183,14 +142,7 @@ def execute_liquidation(pledge_id, user_id):
 
 
 def get_liquidations(user_id):
-    """获取用户所有清算记录
-
-    Args:
-        user_id (int): 用户ID
-
-    Returns:
-        list[dict]: 清算记录列表，每项额外包含 asset_name
-    """
+    """获取用户所有清算记录，并补充资产名称。"""
     liqs = Liquidation.query.filter_by(user_id=user_id).order_by(Liquidation.liquidation_time.desc()).all()
     result = []
     for liq in liqs:

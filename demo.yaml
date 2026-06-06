@@ -1,0 +1,15 @@
+# 演示启动配置。仅使用简单 key: value，main.py 会用标准库解析。
+reset_database: true
+seed_demo_data: true
+
+backend_host: 127.0.0.1
+backend_port: 5000
+
+frontend_host: 127.0.0.1
+frontend_port: 5173
+
+# 默认端口被占用时，自动顺延到下一个可用端口。
+auto_select_free_ports: true
+
+# 首次运行前建议按 README 手动安装依赖；需要脚本自动 npm install 时改成 true。
+install_frontend_dependencies: false

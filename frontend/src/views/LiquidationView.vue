@@ -113,7 +113,15 @@ async function applyPrices() {
       asset_id: a.asset_id,
       current_price: Number(a.tempPrice),
     }))
-  await simulatePrice(selectedPrices)
+  if (!selectedPrices.length) {
+    ElMessage.warning('请先调整至少一个资产价格')
+    return
+  }
+  const priceRes = await simulatePrice(selectedPrices)
+  if (priceRes.code !== 200) {
+    ElMessage.error(priceRes.message || '价格更新失败')
+    return
+  }
   const [r, l] = await Promise.all([getLiquidationRisk(), getLiquidationList()])
   if (r.code === 200) risks.value = r.data
   if (l.code === 200) liquidations.value = l.data

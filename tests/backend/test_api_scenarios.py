@@ -60,6 +60,9 @@ def test_full_user_pledge_loan_repayment_flow(client, assets):
         ("get", "/api/liquidation/risk", None),
         ("post", "/api/liquidation/execute", {"pledge_id": 1}),
         ("get", "/api/simulation/statistics", None),
+        ("post", "/api/simulation/advance-time", {"days": 30}),
+        ("get", "/api/oracle/overview", None),
+        ("post", "/api/oracle/feed", [{"asset_id": 1, "current_price": "1000"}]),
     ],
 )
 def test_financial_endpoints_require_authentication(client, method, url, payload):
@@ -113,3 +116,18 @@ def test_statistics_api_uses_unified_success_envelope(client, make_user, make_au
     assert body["code"] == 200
     assert body["message"] == "success"
 
+
+@pytest.mark.integration
+def test_advance_time_api_accrues_interest(client, make_user, make_auth_headers, assets, make_loan):
+    user = make_user()
+    make_loan(user, assets["ETH"], amount="1000", rate="0.05", term=365, remaining="1000")
+
+    response = client.post(
+        "/api/simulation/advance-time",
+        json={"days": 30},
+        headers=make_auth_headers(user),
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["data"]["interest_accrued"] == "4.1096"

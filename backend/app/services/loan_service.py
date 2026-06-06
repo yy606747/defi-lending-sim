@@ -1,60 +1,37 @@
-"""借贷管理 Service
+"""借贷管理服务
 
-提供借贷的创建、查询和利率计算功能。
+提供借贷的创建、查询和动态利率计算功能。
 """
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime
 from app.models import db
 from app.models.loan import Loan
-from app.models.pledge import Pledge
 from app.models.asset import VirtualAsset
+from app.models.user import User
+from app.services import interest_service, risk_engine
+from app.services.protocol_config import RATE_QUANT, TERM_MULTIPLIERS, parse_positive_decimal
 
-BASE_RATES = {
-    'ETH': Decimal('0.05'),
-    'BTC': Decimal('0.04'),
-    'USDT': Decimal('0.08'),
-}
-DEFAULT_RATE = Decimal('0.06')
-
-TERM_MULTIPLIERS = [
-    (30, Decimal('0.9'), '30天'),
-    (60, Decimal('1.0'), '60天'),
-    (90, Decimal('1.0'), '90天'),
-    (180, Decimal('1.2'), '180天'),
-]
-
-def _get_base_rate(asset_code):
-    return BASE_RATES.get(asset_code, DEFAULT_RATE)
-
-def _calc_rate(base_rate, loan_term):
-    if loan_term <= 30:
-        rate = base_rate * Decimal('0.9')
-    elif loan_term <= 90:
-        rate = base_rate
-    else:
-        rate = base_rate * Decimal('1.2')
-    return rate.quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
+DEFAULT_RATE = Decimal("0.0600")
 
 def get_current_rate(loan_term, asset_id=None):
-    base_rate = DEFAULT_RATE
+    """获取指定期限的新借款利率。"""
     if asset_id:
-        asset = VirtualAsset.query.get(asset_id)
-        if asset:
-            base_rate = _get_base_rate(asset.asset_code)
-    return str(_calc_rate(base_rate, loan_term))
+        return str(interest_service.get_current_borrow_rate(asset_id, loan_term))
+    return str(DEFAULT_RATE.quantize(RATE_QUANT, rounding=ROUND_HALF_UP))
 
 def get_asset_rates(asset_id):
+    """获取某个资产不同期限下的新借款利率报价。"""
     asset = VirtualAsset.query.get(asset_id)
     if not asset:
         return None, "资产不存在"
 
-    base_rate = _get_base_rate(asset.asset_code)
+    base_rate = interest_service.get_current_borrow_rate(asset_id)
     rates = []
     for term, multiplier, label in TERM_MULTIPLIERS:
-        rate = (base_rate * multiplier).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
+        current_rate = (base_rate * multiplier).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
         rates.append({
             "term": term,
-            "rate": str(rate),
+            "rate": str(current_rate),
             "label": label,
         })
 
@@ -66,43 +43,37 @@ def get_asset_rates(asset_id):
     }, None
 
 def create_loan(user_id, asset_id, loan_amount, loan_term):
+    """创建借款记录，并在写入前校验账户级可借额度和健康因子。"""
     asset = VirtualAsset.query.get(asset_id)
     if not asset:
         return None, "资产不存在"
+    if not User.query.get(user_id):
+        return None, "用户不存在"
 
     if loan_term <= 0:
         return None, "借贷期限必须大于0"
 
-    try:
-        loan_amount = Decimal(str(loan_amount))
-    except (InvalidOperation, ValueError):
-        return None, "借贷金额必须为有效数字"
+    loan_amount, err = parse_positive_decimal(loan_amount, "借贷金额")
+    if err:
+        return None, err
 
-    if loan_amount <= 0:
-        return None, "借贷金额必须大于0"
+    # 1. 借款前先结算已有利息，再由账户级风险引擎计算实时可借额度。
+    interest_service.accrue_user_interest(user_id, commit=False)
+    snapshot = risk_engine.get_account_snapshot(user_id)
+    if loan_amount > snapshot["available_to_borrow"]:
+        db.session.rollback()
+        return None, f"可借额度不足，当前可借: {snapshot['available_to_borrow']}"
 
-    # 1. 校验可借额度是否充足
-    pledges = Pledge.query.filter_by(user_id=user_id, pledge_status="active").all()
-    total_available = sum(p.available_loan_amount for p in pledges)
-    if loan_amount > total_available:
-        return None, f"可借额度不足，当前可借: {total_available}"
+    after_borrow = risk_engine.get_account_snapshot(user_id, extra_debt=loan_amount)
+    if after_borrow["total_debt"] > after_borrow["borrow_power"] or after_borrow["health_factor"] < Decimal("1"):
+        db.session.rollback()
+        return None, "借款后账户健康因子不足，拒绝借贷"
 
-    # 2. 真实扣减用户的可借额度，防止重复借贷同一笔质押额度
-    remaining_to_deduct = loan_amount
-    for pledge in pledges:
-        if remaining_to_deduct <= 0:
-            break
-        if pledge.available_loan_amount >= remaining_to_deduct:
-            pledge.available_loan_amount -= remaining_to_deduct
-            remaining_to_deduct = Decimal('0')
-        else:
-            remaining_to_deduct -= pledge.available_loan_amount
-            pledge.available_loan_amount = Decimal('0')
-
-    # 3. 计算利率并创建记录
-    rate = Decimal(get_current_rate(loan_term, asset_id))
+    # 2. 动态利率：按当前市场利用率 + 期限系数确定借款利率。
+    rate = interest_service.get_current_borrow_rate(asset_id, loan_term)
 
     try:
+        now = datetime.now()
         loan = Loan(
             user_id=user_id,
             asset_id=asset_id,
@@ -111,9 +82,13 @@ def create_loan(user_id, asset_id, loan_amount, loan_term):
             loan_term=loan_term,
             repay_status="unpaid",
             remaining_principal=loan_amount,
-            loan_time=datetime.now()
+            accrued_interest=Decimal("0"),
+            loan_time=now,
+            last_accrual_time=now,
         )
         db.session.add(loan)
+        db.session.flush()
+        risk_engine.sync_available_amounts(user_id)
         db.session.commit()
         return loan.to_dict(), None
     except Exception as e:
@@ -121,6 +96,7 @@ def create_loan(user_id, asset_id, loan_amount, loan_term):
         return None, f"系统错误: {str(e)}"
 
 def get_loans(user_id):
+    """获取用户借款记录，并补充资产信息和当前应还总额。"""
     loans = Loan.query.filter_by(user_id=user_id).order_by(Loan.loan_time.desc()).all()
     result = []
     for loan in loans:
@@ -130,11 +106,7 @@ def get_loans(user_id):
             item["asset_name"] = asset.asset_name
             item["asset_code"] = asset.asset_code
             
-        # 根据团队手册实现单利复原计算：利息 = 借款总额 * 年化利率 * (期限 / 365)
-        interest = loan.loan_amount * loan.loan_rate * Decimal(str(loan.loan_term)) / Decimal("365")
-        
-        # 应还总额 = 剩余本金 + 固定的单利总利息
-        total_repay = loan.remaining_principal + interest
+        total_repay = loan.remaining_principal + (loan.accrued_interest or Decimal("0"))
         item["total_repay"] = str(total_repay.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP))
         result.append(item)
     return result

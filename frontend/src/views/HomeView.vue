@@ -2,7 +2,7 @@
   <div class="home">
     <div class="welcome-banner">
       <div class="welcome-text">
-        <p class="greeting">Welcome back</p>
+        <p class="greeting">欢迎回来</p>
         <h1>{{ userStore.userInfo?.user_name || '...' }}</h1>
         <p class="sub">管理你的虚拟 DeFi 资产组合</p>
       </div>
@@ -155,7 +155,7 @@ onMounted(loadOverview)
   gap: 24px;
 }
 
-/* ---- Welcome ---- */
+/* ---- 欢迎区 ---- */
 .welcome-banner {
   display: flex;
   align-items: center;
@@ -204,7 +204,7 @@ onMounted(loadOverview)
   height: auto;
 }
 
-/* ---- Stats ---- */
+/* ---- 统计区 ---- */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -259,7 +259,7 @@ onMounted(loadOverview)
   letter-spacing: -0.5px;
 }
 
-/* ---- Info ---- */
+/* ---- 信息区 ---- */
 .info-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -322,7 +322,7 @@ onMounted(loadOverview)
   box-shadow: 0 0 6px var(--green-glow);
 }
 
-/* ---- Quick Actions ---- */
+/* ---- 快捷操作区 ---- */
 .quick-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;

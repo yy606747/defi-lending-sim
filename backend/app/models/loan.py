@@ -11,10 +11,14 @@ class Loan(db.Model):
     asset_id = db.Column(db.Integer, db.ForeignKey("virtual_asset.asset_id"), nullable=False)
     loan_amount = db.Column(db.Numeric(precision=20, scale=4), nullable=False)
     loan_rate = db.Column(db.Numeric(precision=10, scale=6), nullable=False)
-    loan_term = db.Column(db.Integer, nullable=False)  # days
+    loan_term = db.Column(db.Integer, nullable=False)  # 借款期限，单位：天
     loan_time = db.Column(db.DateTime, default=datetime.now)
-    repay_status = db.Column(db.String(16), default="unpaid")  # unpaid / partial / paid
+    repay_status = db.Column(db.String(16), default="unpaid")  # 未还、部分还款、已还清
     remaining_principal = db.Column(db.Numeric(precision=20, scale=4), nullable=False)
+    accrued_interest = db.Column(
+        db.Numeric(precision=20, scale=4), nullable=False, default=Decimal("0")
+    )
+    last_accrual_time = db.Column(db.DateTime, default=datetime.now)
 
     repayments = db.relationship("Repayment", backref="loan", lazy=True)
 
@@ -29,4 +33,6 @@ class Loan(db.Model):
             "loan_time": self.loan_time.isoformat() if self.loan_time else None,
             "repay_status": self.repay_status,
             "remaining_principal": str(self.remaining_principal),
+            "accrued_interest": str(self.accrued_interest or Decimal("0")),
+            "last_accrual_time": self.last_accrual_time.isoformat() if self.last_accrual_time else None,
         }

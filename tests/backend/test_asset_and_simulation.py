@@ -34,6 +34,30 @@ def test_simulate_price_change_quantizes_prices_and_keeps_usdt_bound(app, monkey
     assert Decimal(by_code["USDT"]["current_price"]).as_tuple().exponent == -4
 
 
+@pytest.mark.financial
+@pytest.mark.regression
+def test_simulate_price_change_accepts_deterministic_price_override(app, assets):
+    result = asset_service.simulate_price_change(
+        [{"asset_id": assets["ETH"].asset_id, "current_price": "1234.5678"}]
+    )
+
+    by_code = {asset["asset_code"]: asset for asset in result}
+    assert by_code["ETH"]["current_price"] == "1234.5678"
+
+
+@pytest.mark.financial
+@pytest.mark.regression
+def test_simulate_price_change_rejects_empty_override_instead_of_randomizing(app, assets):
+    old_prices = {code: asset.current_price for code, asset in assets.items()}
+
+    with pytest.raises(ValueError, match="请提供要更新的资产价格"):
+        asset_service.simulate_price_change([])
+
+    for code, asset in assets.items():
+        db.session.refresh(asset)
+        assert asset.current_price == old_prices[code]
+
+
 def test_simulate_endpoint_requires_jwt(client):
     response = client.post("/api/asset/simulate")
 
@@ -94,7 +118,7 @@ def test_statistics_empty_system_uses_zero_money_values(app):
     assert stats["total_pledge_value"] == "0.0000"
     assert stats["total_loan_amount"] == "0.0000"
     assert stats["total_liquidations"] == 0
-    assert stats["utilization_rate"] == "0"
+    assert stats["utilization_rate"] == "0.0000"
     assert stats["avg_dynamic_rate"] == "0"
 
 
@@ -120,8 +144,8 @@ def test_statistics_counts_active_pledges_unpaid_loans_and_liquidations(
     assert stats["total_pledge_value"] == "6000.0000"
     assert stats["total_loan_amount"] == "400.0000"
     assert stats["total_liquidations"] == 1
-    assert stats["utilization_rate"] == "0.0667"
-    assert stats["avg_dynamic_rate"] == "0.0227"
+    assert stats["utilization_rate"] == "0.0002"
+    assert stats["avg_dynamic_rate"] == "0.0200"
 
 
 @pytest.mark.integration

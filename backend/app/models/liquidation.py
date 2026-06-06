@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from app.models import db
 
 
@@ -12,6 +13,12 @@ class Liquidation(db.Model):
     liquidation_amount = db.Column(db.Numeric(precision=20, scale=4), nullable=False)
     liquidation_time = db.Column(db.DateTime, default=datetime.now)
     liquidation_status = db.Column(db.String(16), nullable=False)
+    debt_repaid = db.Column(db.Numeric(precision=20, scale=4), nullable=False, default=Decimal("0"))
+    collateral_seized = db.Column(db.Numeric(precision=20, scale=4), nullable=False, default=Decimal("0"))
+    liquidation_bonus = db.Column(db.Numeric(precision=10, scale=4), nullable=False, default=Decimal("0"))
+    health_factor_before = db.Column(db.Numeric(precision=20, scale=4), nullable=False, default=Decimal("0"))
+    health_factor_after = db.Column(db.Numeric(precision=20, scale=4), nullable=False, default=Decimal("0"))
+    bad_debt = db.Column(db.Numeric(precision=20, scale=4), nullable=False, default=Decimal("0"))
 
     def to_dict(self):
         return {
@@ -22,4 +29,10 @@ class Liquidation(db.Model):
             "liquidation_amount": str(self.liquidation_amount),
             "liquidation_time": self.liquidation_time.isoformat() if self.liquidation_time else None,
             "liquidation_status": self.liquidation_status,
+            "debt_repaid": str(self.debt_repaid),
+            "collateral_seized": str(self.collateral_seized),
+            "liquidation_bonus": str(self.liquidation_bonus),
+            "health_factor_before": str(self.health_factor_before),
+            "health_factor_after": str(self.health_factor_after),
+            "bad_debt": str(self.bad_debt),
         }

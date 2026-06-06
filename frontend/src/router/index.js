@@ -18,6 +18,7 @@ const routes = [
       { path: 'repayment', name: 'Repayment', component: () => import('../views/RepaymentView.vue') },
       { path: 'liquidation', name: 'Liquidation', component: () => import('../views/LiquidationView.vue') },
       { path: 'data', name: 'Data', component: () => import('../views/DataView.vue') },
+      { path: 'oracle', name: 'Oracle', component: () => import('../views/OracleView.vue') },
     ],
   },
 ]

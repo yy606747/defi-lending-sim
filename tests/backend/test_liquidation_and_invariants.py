@@ -19,7 +19,7 @@ def test_risk_without_debt_is_low_and_uses_sentinel_ratio(app, make_user, assets
     assert len(result) == 1
     assert result[0]["risk_level"] == "low"
     assert result[0]["collateral_ratio"] == "9999.0000"
-    assert result[0]["total_debt"] == "0"
+    assert result[0]["total_debt"] == "0.0000"
 
 
 @pytest.mark.financial
@@ -73,7 +73,7 @@ def test_execute_liquidation_refuses_safe_position_at_boundary(
     result, err = liquidation_service.execute_liquidation(pledge.pledge_id, user.user_id)
 
     assert result is None
-    assert "未达到清算线" in err
+    assert "健康因子未低于1" in err
     db.session.refresh(pledge)
     db.session.refresh(loan)
     assert pledge.pledge_status == "active"
@@ -99,11 +99,13 @@ def test_execute_liquidation_marks_pledge_loans_and_record_when_unsafe(
     assert err is None
     assert result["liquidation_price"] == "1000.0000"
     assert result["liquidation_amount"] == "1000.0000"
+    assert result["debt_repaid"] == "952.3810"
+    assert result["bad_debt"] == "47.6190"
     db.session.refresh(pledge)
     db.session.refresh(loan)
     assert pledge.pledge_status == "liquidated"
-    assert loan.repay_status == "paid"
-    assert loan.remaining_principal == Decimal("0.0000")
+    assert loan.repay_status == "partial"
+    assert loan.remaining_principal == Decimal("47.6190")
     assert Liquidation.query.count() == 1
 
 
@@ -155,7 +157,7 @@ def test_borrowing_exact_available_amount_never_makes_available_negative(
     assert err is None
     assert result["loan_amount"] == "100.0000"
     db.session.refresh(pledge)
-    assert pledge.available_loan_amount == Decimal("0.0000")
+    assert pledge.available_loan_amount == Decimal("2300.0000")
 
 
 @pytest.mark.financial
@@ -170,7 +172,7 @@ def test_failed_overborrow_preserves_total_available_and_loan_count(
     user = make_user()
     make_pledge(user, assets["ETH"], amount="1", available_loan_amount="100")
 
-    result, err = loan_service.create_loan(user.user_id, assets["ETH"].asset_id, "100.0001", 30)
+    result, err = loan_service.create_loan(user.user_id, assets["ETH"].asset_id, "2400.0001", 30)
 
     assert result is None
     assert "可借额度不足" in err
@@ -193,5 +195,4 @@ def test_completed_liquidation_global_debt_invariant(app, make_user, assets, mak
     assert err is None
     assert result["liquidation_status"] == "completed"
     remaining_debt = sum(loan.remaining_principal for loan in Loan.query.filter_by(user_id=user.user_id))
-    assert remaining_debt == Decimal("0.0000")
-
+    assert remaining_debt == Decimal("47.6190")

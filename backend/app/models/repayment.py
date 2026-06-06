@@ -10,7 +10,7 @@ class Repayment(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("user.user_id"), nullable=False)
     repayment_amount = db.Column(db.Numeric(precision=20, scale=4), nullable=False)
     repayment_time = db.Column(db.DateTime, default=datetime.now)
-    repayment_type = db.Column(db.String(16), nullable=False)  # early / due
+    repayment_type = db.Column(db.String(16), nullable=False)  # 提前还款 / 到期后还款
 
     def to_dict(self):
         return {

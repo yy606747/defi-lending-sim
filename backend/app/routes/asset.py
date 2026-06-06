@@ -1,4 +1,4 @@
-from flask import Blueprint
+from flask import Blueprint, request
 from flask_jwt_extended import jwt_required
 from app.services import asset_service
 from app.utils.response import success, error
@@ -22,5 +22,8 @@ def get_one(asset_id):
 @asset_bp.route("/simulate", methods=["POST"])
 @jwt_required()
 def simulate():
-    result = asset_service.simulate_price_change()
+    try:
+        result = asset_service.simulate_price_change(request.get_json(silent=True))
+    except ValueError as e:
+        return error(str(e))
     return success(result, "价格模拟完成")

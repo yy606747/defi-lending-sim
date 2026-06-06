@@ -75,6 +75,7 @@ const IconMoney = { render: () => h('svg', { viewBox: '0 0 20 20', fill: 'curren
 const IconRefresh = { render: () => h('svg', { viewBox: '0 0 20 20', fill: 'currentColor', innerHTML: '<path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/>' }) }
 const IconWarning = { render: () => h('svg', { viewBox: '0 0 20 20', fill: 'currentColor', innerHTML: '<path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>' }) }
 const IconChart = { render: () => h('svg', { viewBox: '0 0 20 20', fill: 'currentColor', innerHTML: '<path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/>' }) }
+const IconRadar = { render: () => h('svg', { viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', innerHTML: '<path d="M10 2.5v15"/><path d="M2.5 10h15"/><circle cx="10" cy="10" r="6.5"/><circle cx="10" cy="10" r="2.5"/><path d="M10 10l4.2-4.2"/>' }) }
 
 const menuItems = [
   { path: '/dashboard/home', label: '系统首页', icon: IconHome },
@@ -84,6 +85,7 @@ const menuItems = [
   { path: '/dashboard/repayment', label: '还款管理', icon: IconRefresh },
   { path: '/dashboard/liquidation', label: '清算模拟', icon: IconWarning },
   { path: '/dashboard/data', label: '数据中心', icon: IconChart },
+  { path: '/dashboard/oracle', label: '预言机控制台', icon: IconRadar },
 ]
 
 const pageTitles = {
@@ -94,6 +96,7 @@ const pageTitles = {
   '/dashboard/repayment': '还款管理',
   '/dashboard/liquidation': '清算模拟',
   '/dashboard/data': '数据中心',
+  '/dashboard/oracle': '预言机与全局风控监控中心',
 }
 const currentPageTitle = computed(() => pageTitles[route.path] || 'Dashboard')
 
@@ -120,7 +123,7 @@ function handleLogout() {
   overflow: hidden;
 }
 
-/* ---- Sidebar ---- */
+	/* ---- 侧边栏 ---- */
 .sidebar {
   width: 220px;
   min-width: 220px;
@@ -212,7 +215,7 @@ function handleLogout() {
   box-shadow: 0 0 6px var(--green-glow);
 }
 
-/* ---- Main ---- */
+	/* ---- 主内容区 ---- */
 .main-area {
   flex: 1;
   display: flex;
@@ -333,7 +336,7 @@ function handleLogout() {
   padding: 28px;
 }
 
-/* Transitions */
+/* 页面切换动画 */
 .dropdown-enter-active,
 .dropdown-leave-active {
   transition: opacity 0.15s, transform 0.15s;

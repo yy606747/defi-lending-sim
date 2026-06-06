@@ -5,6 +5,7 @@ from app.routes.loan import loan_bp
 from app.routes.repayment import repayment_bp
 from app.routes.liquidation import liquidation_bp
 from app.routes.simulation import simulation_bp
+from app.routes.oracle import oracle_bp
 
 
 def register_routes(app):
@@ -15,3 +16,4 @@ def register_routes(app):
     app.register_blueprint(repayment_bp)
     app.register_blueprint(liquidation_bp)
     app.register_blueprint(simulation_bp)
+    app.register_blueprint(oracle_bp)

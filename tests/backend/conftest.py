@@ -146,10 +146,13 @@ def make_loan(app):
         rate="0.05",
         term=30,
         remaining=None,
+        accrued_interest="0",
         status="unpaid",
         loan_time=None,
+        last_accrual_time=None,
     ):
         amount_dec = Decimal(str(amount))
+        effective_loan_time = loan_time or datetime.now()
         loan = Loan(
             user_id=user.user_id,
             asset_id=asset.asset_id,
@@ -158,7 +161,9 @@ def make_loan(app):
             loan_term=term,
             repay_status=status,
             remaining_principal=Decimal(str(remaining)) if remaining is not None else amount_dec,
-            loan_time=loan_time or datetime.now(),
+            accrued_interest=Decimal(str(accrued_interest)),
+            loan_time=effective_loan_time,
+            last_accrual_time=last_accrual_time or effective_loan_time,
         )
         db.session.add(loan)
         db.session.commit()
@@ -198,4 +203,3 @@ def make_liquidation(app):
         return liquidation
 
     return _make_liquidation
-

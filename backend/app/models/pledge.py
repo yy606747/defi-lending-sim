@@ -13,7 +13,7 @@ class Pledge(db.Model):
     pledge_time = db.Column(db.DateTime, default=datetime.now)
     pledge_rate = db.Column(db.Numeric(precision=10, scale=4), nullable=False)
     available_loan_amount = db.Column(db.Numeric(precision=20, scale=4), default=Decimal("0"))
-    pledge_status = db.Column(db.String(16), default="active")  # active / liquidated / unlocked
+    pledge_status = db.Column(db.String(16), default="active")  # 活跃 / 已清算 / 已解锁
 
     liquidation = db.relationship("Liquidation", backref="pledge", uselist=False, lazy=True)
 

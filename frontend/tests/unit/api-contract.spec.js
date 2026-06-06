@@ -52,6 +52,8 @@ describe('frontend API contract wrappers', () => {
     const loanApi = await import('../../src/api/loan')
     const repaymentApi = await import('../../src/api/repayment')
     const liquidationApi = await import('../../src/api/liquidation')
+    const oracleApi = await import('../../src/api/oracle')
+    const feed = [{ asset_id: 1, current_price: '1000' }]
 
     pledgeApi.createPledge({ asset_id: 1, pledge_amount: '1' })
     pledgeApi.getPledgeList()
@@ -64,6 +66,8 @@ describe('frontend API contract wrappers', () => {
     liquidationApi.getLiquidationRisk()
     liquidationApi.executeLiquidation({ pledge_id: 5 })
     liquidationApi.getLiquidationList()
+    oracleApi.getOracleOverview()
+    oracleApi.feedPrices(feed)
 
     expect(requestMock.post).toHaveBeenCalledWith('/api/pledge/create', { asset_id: 1, pledge_amount: '1' })
     expect(requestMock.get).toHaveBeenCalledWith('/api/pledge/list')
@@ -76,6 +80,7 @@ describe('frontend API contract wrappers', () => {
     expect(requestMock.get).toHaveBeenCalledWith('/api/liquidation/risk')
     expect(requestMock.post).toHaveBeenCalledWith('/api/liquidation/execute', { pledge_id: 5 })
     expect(requestMock.get).toHaveBeenCalledWith('/api/liquidation/list')
+    expect(requestMock.get).toHaveBeenCalledWith('/api/oracle/overview')
+    expect(requestMock.post).toHaveBeenCalledWith('/api/oracle/feed', feed)
   })
 })
-

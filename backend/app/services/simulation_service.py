@@ -1,4 +1,4 @@
-"""数据仿真与展示 Service
+"""数据仿真与展示服务
 
 提供价格历史生成和系统统计功能。
 """
@@ -12,59 +12,16 @@ from app.models.user import User
 from app.models.pledge import Pledge
 from app.models.loan import Loan
 from app.models.liquidation import Liquidation
-
-
-# ---------------------------------------------------------------------------
-# Kink Model 利率参数（Aave/Compound 标准分段线性模型）
-# 利用率低于 optimal 时利率平缓上升，高于 optimal 时急剧上升
-# ---------------------------------------------------------------------------
-RATE_PARAMS = {
-    "ETH": {
-        "base_rate": Decimal("0.02"),
-        "slope1": Decimal("0.04"),
-        "slope2": Decimal("0.75"),
-        "optimal": Decimal("0.80"),
-    },
-    "BTC": {
-        "base_rate": Decimal("0.02"),
-        "slope1": Decimal("0.03"),
-        "slope2": Decimal("0.60"),
-        "optimal": Decimal("0.80"),
-    },
-    "USDT": {
-        "base_rate": Decimal("0.04"),
-        "slope1": Decimal("0.04"),
-        "slope2": Decimal("0.75"),
-        "optimal": Decimal("0.80"),
-    },
-}
-
-DEFAULT_RATE_PARAMS = RATE_PARAMS["ETH"]
+from app.services import interest_service
+from app.services.protocol_config import (
+    SIMULATED_POOL_LIQUIDITY,
+    get_pool_liquidity,
+)
 
 
 def calculate_dynamic_rate(asset_code, utilization):
-    """根据资产类型和利用率计算当前动态利率（Kink Model）
-
-    Args:
-        asset_code (str): 资产代码（ETH/BTC/USDT）
-        utilization (Decimal): 利用率（0~1）
-
-    Returns:
-        Decimal: 动态年化利率
-    """
-    params = RATE_PARAMS.get(asset_code, DEFAULT_RATE_PARAMS)
-    u = max(Decimal("0"), min(utilization, Decimal("1.0")))
-
-    if u <= params["optimal"]:
-        # 低利用率区间：利率缓慢上升，鼓励借款
-        rate = params["base_rate"] + u * params["slope1"]
-    else:
-        # 高利用率区间：利率急剧上升，抑制借款、保护流动性
-        rate_at_optimal = params["base_rate"] + params["optimal"] * params["slope1"]
-        rate = rate_at_optimal + (u - params["optimal"]) * params["slope2"]
-        rate = min(rate, Decimal("2.0"))  # 封顶 200%
-
-    return rate.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    """根据资产类型和利用率计算当前分段年化利率。"""
+    return interest_service.calculate_dynamic_rate(asset_code, utilization)
 
 
 def get_price_history(asset_id):
@@ -72,18 +29,14 @@ def get_price_history(asset_id):
 
     历史价格生成算法：
     以当前真实价格为终点，反向模拟 30 天的价格路径。
-    使用固定随机种子（asset_id）确保同一资产每次返回相同的历史曲线，
-    模拟"真实历史数据存储"的可复现效果。
+    使用固定随机种子（asset_id）生成可复现的合成历史曲线。
+    该曲线不是持久化市场日志，只用于图表展示和实验复现。
 
     模型选择（每步 = 1 天，price_volatility 为日波动参数）：
     - ETH / BTC：几何布朗运动（GBM）反向生成
     - USDT：Ornstein-Uhlenbeck 均值回归反向生成
 
-    Args:
-        asset_id (int): 资产ID
-
-    Returns:
-        (dict|None, str|None): (包含 dates 和 prices 的字典, 错误消息)
+    返回结果包含日期序列和价格序列；曲线只用于展示和实验复现。
     """
     asset = VirtualAsset.query.get(asset_id)
     if not asset:
@@ -100,8 +53,8 @@ def get_price_history(asset_id):
     mu = 0.0
 
     if asset.asset_code == "USDT":
-        # USDT：稳定币，正向 OU 模拟（从锚定价出发，向 1.0 回归）
-        # 不使用反向 OU（反向会放大偏离，导致价格发散）
+        # 稳定币使用正向均值回归模拟，从锚定价出发并向 1.0 回归。
+        # 不使用反向均值回归，避免偏离被持续放大。
         theta = 0.5
         mean_price = 1.0
         price = mean_price  # 从锚定价出发
@@ -114,7 +67,7 @@ def get_price_history(asset_id):
             prices.append(round(price, 4))
         prices.append(current_price)
     else:
-        # ETH / BTC：GBM 反向生成，sigma 为日波动参数
+        # ETH / BTC 使用几何布朗运动反向生成，sigma 为日波动参数。
         for _ in range(30):
             z = rng.gauss(0, 1)
             factor = math.exp((mu - 0.5 * sigma ** 2) + sigma * z)
@@ -144,10 +97,7 @@ def get_statistics():
     - total_loan_amount: 未还清借贷总额
     - total_liquidations: 清算总次数
     - utilization_rate: 资金利用率（借贷额/质押价值）
-    - avg_dynamic_rate: 加权平均动态利率（Kink Model，按借贷金额加权）
-
-    Returns:
-        dict: 统计数据
+    - avg_dynamic_rate: 加权平均动态利率（分段利率模型，按借贷金额加权）
     """
     total_users = User.query.count()
 
@@ -159,40 +109,38 @@ def get_statistics():
             total_pledge_value += p.pledge_amount * asset.current_price
 
     loans = Loan.query.filter(Loan.repay_status != "paid").all()
-    total_loan_amount = sum(loan.remaining_principal for loan in loans)
+    total_loan_amount = sum(
+        loan.remaining_principal + (loan.accrued_interest or Decimal("0"))
+        for loan in loans
+    )
 
     total_liquidations = Liquidation.query.count()
 
-    # --- 新增：资金利用率 ---
-    if total_pledge_value > 0:
-        utilization_rate = (total_loan_amount / total_pledge_value).quantize(
+    total_pool_liquidity = sum(SIMULATED_POOL_LIQUIDITY.values(), Decimal("0"))
+    if total_pool_liquidity > 0:
+        utilization_rate = (total_loan_amount / total_pool_liquidity).quantize(
             Decimal("0.0001"), rounding=ROUND_HALF_UP
         )
     else:
         utilization_rate = Decimal("0")
 
-    # --- 新增：动态平均利率（按资产分别计算利用率 → Kink Model → 加权平均）---
+    # 按资产分别计算利用率和借款利率，再用未还债务做加权平均。
     weighted_rate_sum = Decimal("0")
     weighted_loan_sum = Decimal("0")
 
     for asset in VirtualAsset.query.all():
-        # 该资产的未还清借贷总额
+        # 该资产的未还清借贷总额为本金加已计息。
         asset_loan = sum(
-            loan.remaining_principal
+            loan.remaining_principal + (loan.accrued_interest or Decimal("0"))
             for loan in loans
             if loan.asset_id == asset.asset_id
         )
         if asset_loan <= 0:
             continue
 
-        # 该资产的活跃质押总价值
-        asset_pledge = Decimal("0")
-        for p in active_pledges:
-            if p.asset_id == asset.asset_id:
-                asset_pledge += p.pledge_amount * asset.current_price
-
-        if asset_pledge > 0:
-            asset_util = asset_loan / asset_pledge
+        pool_liquidity = get_pool_liquidity(asset.asset_code)
+        if pool_liquidity > 0:
+            asset_util = asset_loan / pool_liquidity
             rate = calculate_dynamic_rate(asset.asset_code, asset_util)
             weighted_rate_sum += rate * asset_loan
             weighted_loan_sum += asset_loan
@@ -215,7 +163,22 @@ def get_statistics():
             else "0.0000"
         ),
         "total_liquidations": total_liquidations,
-        # 新增指标
         "utilization_rate": str(utilization_rate),
         "avg_dynamic_rate": str(avg_dynamic_rate),
     }
+
+
+def advance_time(user_id, days):
+    """按固定天数推进指定用户的计息时间，便于复现实验结果。"""
+    try:
+        days_dec = Decimal(str(days))
+    except Exception:
+        return None, "快进天数必须为有效数字"
+    if not days_dec.is_finite() or days_dec <= 0:
+        return None, "快进天数必须大于0"
+
+    interest = interest_service.advance_user_time(user_id, days_dec, commit=True)
+    return {
+        "days": str(days_dec),
+        "interest_accrued": str(interest.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)),
+    }, None
