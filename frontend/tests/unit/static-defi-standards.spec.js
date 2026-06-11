@@ -26,5 +26,12 @@ describe('static DeFi frontend standards', () => {
 
     expect(code).toContain('至少6位且包含数字和字母')
   })
-})
 
+  it('keeps the dashboard user menu above positioned page content', () => {
+    const code = source('src/views/DashboardView.vue')
+    const topbarRule = code.match(/\.topbar\s*\{([^}]*)\}/)?.[1] || ''
+
+    expect(topbarRule).toContain('position: relative')
+    expect(topbarRule).toMatch(/z-index:\s*(?:[1-9]\d*)/)
+  })
+})
