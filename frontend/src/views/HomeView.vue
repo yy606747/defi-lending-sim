@@ -37,11 +37,27 @@
       <div class="info-card">
         <div class="info-header">
           <h3>账户信息</h3>
+          <button v-if="!editingName" class="edit-btn" data-test="edit-user-name" @click="startNameEdit">编辑用户名</button>
         </div>
         <div class="info-rows">
           <div class="info-row">
             <span class="info-key">用户名</span>
-            <span class="info-val">{{ userStore.userInfo?.user_name }}</span>
+            <div v-if="editingName" class="name-editor">
+              <input
+                v-model="userNameDraft"
+                class="name-input"
+                data-test="user-name-input"
+                maxlength="64"
+                aria-label="新用户名"
+                @keyup.enter="saveUserName"
+                @keyup.esc="cancelNameEdit"
+              />
+              <button class="save-btn" data-test="save-user-name" :disabled="savingName" @click="saveUserName">
+                {{ savingName ? '保存中...' : '保存' }}
+              </button>
+              <button class="cancel-btn" :disabled="savingName" @click="cancelNameEdit">取消</button>
+            </div>
+            <span v-else class="info-val">{{ userStore.userInfo?.user_name }}</span>
           </div>
           <div class="info-row">
             <span class="info-key">虚拟地址</span>
@@ -90,13 +106,18 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useUserStore } from '../stores/user'
 import { getPledgeList } from '../api/pledge'
 import { getLoanList } from '../api/loan'
+import { updateInfo } from '../api/user'
 
 const userStore = useUserStore()
 const pledgeCount = ref(null)
 const activeLoanCount = ref(null)
+const editingName = ref(false)
+const savingName = ref(false)
+const userNameDraft = ref('')
 
 function formatTime(iso) {
   if (!iso) return '--'
@@ -111,6 +132,43 @@ async function loadOverview() {
   }
   if (loanRes.code === 200) {
     activeLoanCount.value = loanRes.data.filter(l => l.repay_status !== 'paid').length
+  }
+}
+
+function startNameEdit() {
+  userNameDraft.value = userStore.userInfo?.user_name || ''
+  editingName.value = true
+}
+
+function cancelNameEdit() {
+  if (savingName.value) return
+  editingName.value = false
+  userNameDraft.value = ''
+}
+
+async function saveUserName() {
+  const userName = userNameDraft.value.trim()
+  if (!userName) {
+    ElMessage.warning('用户名不能为空')
+    return
+  }
+  if (savingName.value) return
+
+  savingName.value = true
+  try {
+    const res = await updateInfo({ user_name: userName })
+    if (res.code === 200) {
+      userStore.userInfo = res.data
+      editingName.value = false
+      userNameDraft.value = ''
+      ElMessage.success('用户名更新成功')
+    } else {
+      ElMessage.error(res.message)
+    }
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || '用户名更新失败，请稍后重试')
+  } finally {
+    savingName.value = false
   }
 }
 
@@ -275,6 +333,10 @@ onMounted(loadOverview)
 .info-header {
   padding: 18px 22px;
   border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 .info-header h3 {
   font-size: 14px;
@@ -282,6 +344,49 @@ onMounted(loadOverview)
   color: var(--text-primary);
   margin: 0;
 }
+.edit-btn, .save-btn, .cancel-btn {
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+.edit-btn {
+  padding: 6px 10px;
+  border: 1px solid var(--border-glow);
+  background: rgba(99, 102, 241, 0.08);
+  color: var(--accent-light);
+}
+.name-editor {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  flex: 1;
+}
+.name-input {
+  width: min(180px, 100%);
+  padding: 7px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  outline: none;
+  background: rgba(15, 23, 42, 0.8);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.name-input:focus { border-color: var(--accent); }
+.save-btn {
+  padding: 7px 10px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.cancel-btn {
+  padding: 7px 9px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+}
+.save-btn:disabled, .cancel-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .info-rows {
   padding: 6px 0;
 }

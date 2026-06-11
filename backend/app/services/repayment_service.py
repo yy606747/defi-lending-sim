@@ -24,7 +24,11 @@ def create_repayment(user_id, loan_id, repayment_amount):
     if err:
         return None, err
 
-    interest_service.accrue_loan_interest(loan)
+    wall_time = datetime.now()
+    virtual_time = loan.last_accrual_time or loan.loan_time or wall_time
+    repayment_time = max(wall_time, virtual_time)
+
+    interest_service.accrue_loan_interest(loan, now=repayment_time)
     total_due = interest_service.get_loan_total_due(loan)
     if repayment_amount > total_due:
         db.session.rollback()
@@ -52,11 +56,8 @@ def create_repayment(user_id, loan_id, repayment_amount):
     else:
         loan.repay_status = "partial"
 
-    # 还款类型判断规则：根据到期日判断
     due_date = loan.loan_time + timedelta(days=loan.loan_term)
-    
-    # 假设应用服务器使用的是系统当前时间进行比较
-    if datetime.now() > due_date:
+    if repayment_time >= due_date:
         assigned_repayment_type = "due"
     else:
         assigned_repayment_type = "early"
@@ -65,6 +66,7 @@ def create_repayment(user_id, loan_id, repayment_amount):
         loan_id=loan_id,
         user_id=user_id,
         repayment_amount=repayment_amount,
+        repayment_time=repayment_time,
         repayment_type=assigned_repayment_type,
     )
     

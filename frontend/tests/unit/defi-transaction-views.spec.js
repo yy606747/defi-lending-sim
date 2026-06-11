@@ -28,6 +28,7 @@ const liquidationApi = vi.hoisted(() => ({
 const simulationApi = vi.hoisted(() => ({
   getStatistics: vi.fn(),
   getPriceHistory: vi.fn(),
+  advanceTime: vi.fn(),
 }))
 
 vi.mock('../../src/api/asset', () => assetApi)
@@ -95,6 +96,10 @@ beforeEach(() => {
   simulationApi.getPriceHistory.mockResolvedValue({
     code: 200,
     data: { dates: ['2026-06-01', '2026-06-02'], prices: [100, 101] },
+  })
+  simulationApi.advanceTime.mockResolvedValue({
+    code: 200,
+    data: { days: '30', interest_accrued: '4.1096' },
   })
 })
 
@@ -193,6 +198,46 @@ describe('LoanView DeFi borrow checks', () => {
     await nextTick()
 
     expect(wrapper.text()).toContain('$1,029.59')
+  })
+
+  it('advances loan time and reloads accrued interest', async () => {
+    loanApi.getLoanList
+      .mockResolvedValueOnce({
+        code: 200,
+        data: [{ loan_id: 1, repay_status: 'unpaid', remaining_principal: '1000.0000', total_repay: '1000.0000' }],
+      })
+      .mockResolvedValueOnce({
+        code: 200,
+        data: [{ loan_id: 1, repay_status: 'unpaid', remaining_principal: '1000.0000', total_repay: '1004.1096' }],
+      })
+    const LoanView = (await import('../../src/views/LoanView.vue')).default
+    const wrapper = mount(LoanView)
+    await flushPromises()
+
+    await wrapper.get('[data-test="advance-time"]').trigger('click')
+    await flushPromises()
+
+    expect(simulationApi.advanceTime).toHaveBeenCalledWith(30)
+    expect(loanApi.getLoanList).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('$1,004.11')
+  })
+
+  it('disables time advance above the 3650-day limit', async () => {
+    loanApi.getLoanList.mockResolvedValue({
+      code: 200,
+      data: [{ loan_id: 1, repay_status: 'unpaid', remaining_principal: '1000.0000', total_repay: '1000.0000' }],
+    })
+    const LoanView = (await import('../../src/views/LoanView.vue')).default
+    const wrapper = mount(LoanView)
+    await flushPromises()
+
+    wrapper.vm.advanceDays = 3651
+    await nextTick()
+
+    const input = wrapper.get('[aria-label="时间快进天数"]')
+    const button = wrapper.get('[data-test="advance-time"]')
+    expect(input.attributes('max')).toBe('3650')
+    expect(button.attributes('disabled')).toBeDefined()
   })
 })
 
@@ -300,4 +345,3 @@ describe('DataView chart and statistics safety', () => {
     expect(wrapper.vm.chartOption).toBeNull()
   })
 })
-

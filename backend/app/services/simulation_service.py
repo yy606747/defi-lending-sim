@@ -168,6 +168,9 @@ def get_statistics():
     }
 
 
+MAX_ADVANCE_DAYS = Decimal("3650")
+
+
 def advance_time(user_id, days):
     """按固定天数推进指定用户的计息时间，便于复现实验结果。"""
     try:
@@ -176,6 +179,8 @@ def advance_time(user_id, days):
         return None, "快进天数必须为有效数字"
     if not days_dec.is_finite() or days_dec <= 0:
         return None, "快进天数必须大于0"
+    if days_dec > MAX_ADVANCE_DAYS:
+        return None, "单次快进天数不能超过3650天"
 
     interest = interest_service.advance_user_time(user_id, days_dec, commit=True)
     return {

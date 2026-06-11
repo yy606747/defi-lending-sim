@@ -39,12 +39,14 @@ describe('frontend API contract wrappers', () => {
     assetApi.simulatePrice()
     simulationApi.getPriceHistory(7)
     simulationApi.getStatistics()
+    simulationApi.advanceTime(30)
 
     expect(requestMock.get).toHaveBeenCalledWith('/api/asset/list')
     expect(requestMock.get).toHaveBeenCalledWith('/api/asset/7')
     expect(requestMock.post).toHaveBeenCalledWith('/api/asset/simulate')
     expect(requestMock.get).toHaveBeenCalledWith('/api/simulation/price-history/7')
     expect(requestMock.get).toHaveBeenCalledWith('/api/simulation/statistics')
+    expect(requestMock.post).toHaveBeenCalledWith('/api/simulation/advance-time', { days: 30 })
   })
 
   it('maps financial mutation endpoints to authenticated backend routes', async () => {

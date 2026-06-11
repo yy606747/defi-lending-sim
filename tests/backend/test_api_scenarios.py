@@ -131,3 +131,20 @@ def test_advance_time_api_accrues_interest(client, make_user, make_auth_headers,
     assert response.status_code == 200
     body = response.get_json()
     assert body["data"]["interest_accrued"] == "4.1096"
+
+
+@pytest.mark.integration
+def test_advance_time_api_rejects_days_above_limit(
+    client, make_user, make_auth_headers
+):
+    user = make_user()
+
+    response = client.post(
+        "/api/simulation/advance-time",
+        json={"days": 10000000},
+        headers=make_auth_headers(user),
+    )
+
+    assert response.status_code == 400
+    body = response.get_json()
+    assert body["message"] == "单次快进天数不能超过3650天"

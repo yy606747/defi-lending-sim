@@ -59,7 +59,20 @@
     </div>
 
     <div class="card">
-      <h3 class="card-title">借贷记录</h3>
+      <div class="card-header">
+        <div>
+          <h3 class="card-title">借贷记录</h3>
+          <p class="card-description">模拟时间推进后，未还贷款将按签约利率累计利息。</p>
+        </div>
+        <div class="time-controls">
+          <label for="advance-days">时间快进</label>
+          <input id="advance-days" v-model.number="advanceDays" type="number" min="1" :max="MAX_ADVANCE_DAYS" step="1" class="input days-input" aria-label="时间快进天数" />
+          <span class="unit">天</span>
+          <button class="btn-secondary" data-test="advance-time" :disabled="!canAdvanceTime || advancingTime" @click="handleAdvanceTime">
+            {{ advancingTime ? '推进中...' : '推进时间' }}
+          </button>
+        </div>
+      </div>
       <table class="data-table">
         <thead>
           <tr>
@@ -95,12 +108,16 @@ import { ElMessage } from 'element-plus'
 import { getAssetList } from '../api/asset'
 import { getPledgeList } from '../api/pledge'
 import { createLoan, getLoanList, getLoanRate } from '../api/loan'
+import { advanceTime } from '../api/simulation'
 
 const assets = ref([])
 const loans = ref([])
+const MAX_ADVANCE_DAYS = 3650
 const rateInfo = ref(null)
 const selectedRate = ref(null)
 const totalAvailable = ref(0)
+const advanceDays = ref(30)
+const advancingTime = ref(false)
 const form = ref({ asset_id: '', loan_amount: '', loan_term: 30 })
 const repayStatusMap = { unpaid: '未还款', partial: '部分还款', paid: '已还清' }
 const defaultTerms = [
@@ -113,6 +130,10 @@ const defaultTerms = [
 function formatNum(v) { return Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 
 const totalBorrowed = computed(() => loans.value.filter(l => l.repay_status !== 'paid').reduce((s, l) => s + Number(l.remaining_principal), 0))
+const canAdvanceTime = computed(() => {
+  const days = Number(advanceDays.value)
+  return loans.value.some(l => l.repay_status !== 'paid') && Number.isFinite(days) && days > 0 && days <= MAX_ADVANCE_DAYS
+})
 const canSubmit = computed(() => {
   const amount = Number(form.value.loan_amount)
   return Boolean(form.value.asset_id) && Number.isFinite(amount) && amount > 0 && amount <= totalAvailable.value
@@ -175,6 +196,25 @@ async function handleCreate() {
   }
 }
 
+async function handleAdvanceTime() {
+  if (!canAdvanceTime.value || advancingTime.value) return
+
+  advancingTime.value = true
+  try {
+    const res = await advanceTime(advanceDays.value)
+    if (res.code === 200) {
+      await loadData()
+      ElMessage.success(`时间已推进 ${res.data.days} 天，新增利息 $${formatNum(res.data.interest_accrued)}`)
+    } else {
+      ElMessage.error(res.message)
+    }
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || '时间快进失败，请稍后重试')
+  } finally {
+    advancingTime.value = false
+  }
+}
+
 onMounted(loadData)
 </script>
 
@@ -197,7 +237,12 @@ onMounted(loadData)
 .card { background: var(--bg-card); backdrop-filter: blur(12px); border: 1px solid var(--border-subtle); border-radius: var(--radius); overflow: hidden; }
 .form-card { padding: 24px; }
 .form-card h3 { font-size: 15px; font-weight: 600; color: var(--text-primary); margin: 0 0 18px; }
-.card-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin: 0; padding: 18px 20px; border-bottom: 1px solid var(--border-subtle); }
+.card-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 20px; border-bottom: 1px solid var(--border-subtle); }
+.card-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin: 0; }
+.card-description { margin: 4px 0 0; font-size: 12px; color: var(--text-muted); }
+.time-controls { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.time-controls label, .time-controls .unit { font-size: 12px; color: var(--text-muted); }
+.days-input { width: 72px; padding: 8px 10px; }
 
 .form-row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
 .form-group { display: flex; flex-direction: column; gap: 6px; min-width: 160px; flex: 1; }
@@ -224,6 +269,9 @@ onMounted(loadData)
 .btn-accent { display: flex; align-items: center; gap: 6px; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-family: var(--font-sans); background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff; font-size: 13px; font-weight: 600; transition: transform 0.15s, box-shadow 0.2s; white-space: nowrap; }
 .btn-accent:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(99,102,241,0.3); }
 .btn-accent:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.btn-secondary { padding: 8px 14px; border: 1px solid var(--border-glow); border-radius: 8px; cursor: pointer; background: rgba(6,182,212,0.1); color: var(--cyan); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.btn-secondary:hover { background: rgba(6,182,212,0.16); }
+.btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .data-table { width: 100%; border-collapse: collapse; }
 .data-table th { text-align: left; padding: 14px 20px; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border-subtle); background: rgba(15,23,42,0.4); }

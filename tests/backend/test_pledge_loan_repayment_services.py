@@ -298,6 +298,23 @@ def test_advance_time_accrues_interest_without_overwriting_loan_rate(app, make_u
     assert loan.loan_rate == Decimal("0.050000")
 
 
+@pytest.mark.parametrize("days", ["3650.0001", "10000000"])
+def test_advance_time_rejects_days_above_limit_without_mutating_loan(
+    app, make_user, assets, make_loan, days
+):
+    user = make_user()
+    loan = make_loan(user, assets["ETH"], amount="1000", rate="0.05")
+    original_accrual_time = loan.last_accrual_time
+
+    result, err = simulation_service.advance_time(user.user_id, days)
+
+    assert result is None
+    assert err == "单次快进天数不能超过3650天"
+    db.session.refresh(loan)
+    assert loan.accrued_interest == Decimal("0.0000")
+    assert loan.last_accrual_time == original_accrual_time
+
+
 def test_create_repayment_partial_and_paid_status(app, make_user, assets, make_loan):
     user = make_user()
     loan = make_loan(user, assets["ETH"], amount="100", remaining="100")
@@ -364,6 +381,27 @@ def test_create_repayment_assigns_early_or_due_type(
 
     assert err is None
     assert result["repayment_type"] == expected_type
+
+
+@pytest.mark.financial
+@pytest.mark.regression
+def test_repayment_uses_advanced_virtual_time_for_due_type(
+    app, make_user, assets, make_loan
+):
+    user = make_user()
+    loan = make_loan(user, assets["ETH"], amount="100", rate="0.05", term=30)
+
+    advance_result, advance_err = simulation_service.advance_time(user.user_id, "60")
+    advanced_time = loan.last_accrual_time
+    repayment_result, repayment_err = repayment_service.create_repayment(
+        user.user_id, loan.loan_id, "1"
+    )
+
+    assert advance_err is None
+    assert advance_result["interest_accrued"] == "0.8219"
+    assert repayment_err is None
+    assert repayment_result["repayment_type"] == "due"
+    assert loan.last_accrual_time == advanced_time
 
 
 def test_create_repayment_rejects_other_users_loan(app, make_user, assets, make_loan):
